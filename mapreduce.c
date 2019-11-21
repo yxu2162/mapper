@@ -149,7 +149,7 @@ void wrapperReducer(void* args) {
             //printf("%d\n", partitionToRead);
             pthread_mutex_unlock(&mutex);
         }
-        char* keyToRead = (reader->array + reader->headArray)->key;
+        keyToRead = (reader->array + reader->headArray)->key;
 //	printf("%dkey\n", partitionToRead);
         reduceFunc(keyToRead, get_next, partitionNum);
     }
