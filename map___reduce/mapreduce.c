@@ -61,9 +61,8 @@ void MR_Emit(char* key, char* value) {
     pthread_mutex_lock(&((partitions + index)->lock));
     if((partitions + index)->head == NULL) {
         (partitions + index)->head = malloc(sizeof(struct node));
-        (partitions + index)->head->key = malloc(sizeof(key));
-        strcpy((partitions + index)->head->key, key);
-        (partitions + index)->head->value = value;
+	(partitions + index)->head->key = strdup(key);
+	(partitions + index)->head->value = value;
         (partitions + index)->size = 1;
         (partitions + index)->head->next = NULL;
     }
@@ -73,8 +72,7 @@ void MR_Emit(char* key, char* value) {
             curr = curr->next;
         }
         curr->next = malloc(sizeof(struct node));
-        curr->next->key = malloc(sizeof(key));
-        strcpy(curr->next->key,key);
+        curr->next->key = strdup(key);
         curr->next->value = value;
         (partitions + index)->size++;
         curr->next->next = NULL;
@@ -121,7 +119,7 @@ void wrapperReducer(void* args) {
         if(reader != NULL) {
             if(reader->headArray >= reader->size){
                 pthread_mutex_lock(&mutex);
-		while((partitions + partitionToRead)->size == 0 && partitionToRead < numParti) {
+		while( partitionToRead < numParti && (partitions + partitionToRead)->size == 0) {
 			partitionToRead++;
 		}
 		if(partitionToRead < numParti) {
@@ -138,7 +136,7 @@ void wrapperReducer(void* args) {
         }
         else {
             pthread_mutex_lock(&mutex);
-            while((partitions + partitionToRead)->size == 0 && partitionToRead < numParti) {
+            while(partitionToRead < numParti && (partitions + partitionToRead)->size == 0)  {
 		partitionToRead++;
             }
 	    if(partitionToRead >= numParti) {
@@ -166,7 +164,11 @@ void MR_Run(int argc, char *argv[],
 	    Reducer reduce, int num_reducers, 
 	    Partitioner partition, int num_partitions){
 
-    partitions = malloc(sizeof(struct partition) * num_partitions);
+    partitions = calloc(num_partitions,sizeof(struct partition));
+    pthread_mutex_init(&mutex, NULL);
+    for(int x = 0; x < num_partitions; x++) {
+        pthread_mutex_init(&((partitions + x)->lock), NULL);
+    }
     int threadSize = 0;
     fileNames = argv;
     mapFunc = map;
@@ -188,7 +190,7 @@ void MR_Run(int argc, char *argv[],
     }
     bits--;  
 
-    pthread_t* threads = malloc(sizeof(pthread_t) * threadSize);
+    pthread_t* threads = calloc(threadSize,sizeof(pthread_t));
     for(int x = 0; x < threadSize; x++) {
         pthread_create((threads + x), NULL, (void*)wrapperMap, NULL);
     }
@@ -206,7 +208,7 @@ void MR_Run(int argc, char *argv[],
     for(int x = 0; x < num_partitions; x++) {
         //(partitions + x)->size--;
         long arraySize = (partitions + x)->size;
-        (partitions + x)->array = malloc(sizeof(struct node) * arraySize);
+        (partitions + x)->array = malloc(arraySize*sizeof(struct node));
         struct node* curr = (partitions + x)->head;
         struct node* array = (partitions + x)->array;
         for(int y = 0; y < arraySize; y++) {
@@ -219,6 +221,9 @@ void MR_Run(int argc, char *argv[],
 //	}
     }
 
+    /*for(int x = 0; x < threadSize; x++) {
+        free((threads + x));
+    }*/
     if(num_partitions < num_reducers) {
         threadSize = num_partitions;
     }
@@ -226,7 +231,7 @@ void MR_Run(int argc, char *argv[],
         threadSize = num_reducers;
     }
 
-    threads = realloc(threads, sizeof(pthread_t) * threadSize);
+    threads = realloc(threads, sizeof(pthread_t)*threadSize);
 
     for(int x = 0; x < threadSize; x++) {
         pthread_create((threads + x), NULL, (void*)wrapperReducer, NULL);
@@ -236,6 +241,30 @@ void MR_Run(int argc, char *argv[],
         pthread_join(*(threads + x), NULL);
     }
 
-
+    //FREE REAL ESTATE
     
+    //free threads
+   // for(int x = 0; x < threadSize; x++) {
+    	free(threads);
+   // }
+    for(int x = num_partitions-1; x >= 0; x--) {
+    	struct partition* toFree = (partitions + x);
+	if(toFree->size > 0) {
+	    struct node* temp; //Free Linked List
+	    struct node* head = toFree->head;
+	    while(head != NULL) {
+	        temp = head;
+		head = head->next;
+		free(temp->key);
+		free(temp);
+	    }
+	    toFree->head = NULL;
+	    //Free array pointers
+	    free(toFree->array);
+	    toFree->array = NULL;
+	}
+    }
+    if(num_partitions > 0)
+    	free(partitions);
 }
+
